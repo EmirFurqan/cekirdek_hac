@@ -21,24 +21,38 @@ io.on('connection', (socket) => {
   console.log(`[Socket Connected] ID: ${socket.id}`);
 
   // When a user joins a room
-  socket.on('join-room', (roomId) => {
-    console.log(`[Room Join] User ${socket.id} joined room: ${roomId}`);
+  socket.on('join-room', (payload) => {
+    let roomId, username;
     
+    // Support both direct string (backward compatibility) and object payload
+    if (payload && typeof payload === 'object') {
+      roomId = payload.roomId;
+      username = payload.username || `Kullanıcı ${socket.id.substring(0, 4)}`;
+    } else {
+      roomId = payload;
+      username = `Kullanıcı ${socket.id.substring(0, 4)}`;
+    }
+
+    console.log(`[Room Join] User ${username} (${socket.id}) joined room: ${roomId}`);
+    
+    socket.username = username;
+    socket.roomId = roomId;
+
     // Create room if it doesn't exist
     if (!rooms[roomId]) {
       rooms[roomId] = [];
     }
 
     // Add user if they aren't already in the list
-    if (!rooms[roomId].includes(socket.id)) {
-      rooms[roomId].push(socket.id);
+    if (!rooms[roomId].some(u => u.id === socket.id)) {
+      rooms[roomId].push({ id: socket.id, username });
     }
 
     // Socket joins the channel for room broadcasting
     socket.join(roomId);
 
-    // Get all OTHER users in the room to start peer connections
-    const otherUsersInRoom = rooms[roomId].filter(id => id !== socket.id);
+    // Get all OTHER users in the room with usernames
+    const otherUsersInRoom = rooms[roomId].filter(u => u.id !== socket.id);
     
     // Return all existing users in this room to the joining user
     socket.emit('all-users', otherUsersInRoom);
@@ -47,17 +61,18 @@ io.on('connection', (socket) => {
   // Relay initiator's signal to the target user (receiver)
   socket.on('sending-signal', (payload) => {
     const { userToSignal, callerID, signal } = payload;
-    console.log(`[Signaling] Relaying signal from caller ${callerID} to target ${userToSignal}`);
+    console.log(`[Signaling] Relaying signal from caller ${socket.username} (${callerID}) to target ${userToSignal}`);
     io.to(userToSignal).emit('user-joined', {
       signal,
-      callerID
+      callerID,
+      callerUsername: socket.username
     });
   });
 
   // Relay returning signal back to the initiator
   socket.on('returning-signal', (payload) => {
     const { signal, callerID } = payload;
-    console.log(`[Signaling] Returning signal from ${socket.id} to caller ${callerID}`);
+    console.log(`[Signaling] Returning signal from ${socket.username} (${socket.id}) to caller ${callerID}`);
     io.to(callerID).emit('receiving-returned-signal', {
       signal,
       id: socket.id
@@ -81,24 +96,22 @@ io.on('connection', (socket) => {
 
   // Handle client disconnection
   socket.on('disconnect', () => {
-    console.log(`[Socket Disconnected] ID: ${socket.id}`);
+    console.log(`[Socket Disconnected] ID: ${socket.id} (${socket.username})`);
+    const { roomId } = socket;
 
-    // Clean up rooms the user was in
-    for (const roomId in rooms) {
-      if (rooms[roomId].includes(socket.id)) {
-        rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
-        
-        // Notify other room members that this user left
-        socket.to(roomId).emit('user-left', socket.id);
-        
-        console.log(`[Room Leave] Removed ${socket.id} from room: ${roomId}`);
+    if (roomId && rooms[roomId]) {
+      // Filter out user
+      rooms[roomId] = rooms[roomId].filter(u => u.id !== socket.id);
+      
+      // Notify other room members that this user left
+      socket.to(roomId).emit('user-left', socket.id);
+      
+      console.log(`[Room Leave] Removed ${socket.username} from room: ${roomId}`);
 
-        // Clean up empty room
-        if (rooms[roomId].length === 0) {
-          delete rooms[roomId];
-          console.log(`[Room Cleanup] Room ${roomId} is empty and deleted.`);
-        }
-        break;
+      // Clean up empty room
+      if (rooms[roomId].length === 0) {
+        delete rooms[roomId];
+        console.log(`[Room Cleanup] Room ${roomId} is empty and deleted.`);
       }
     }
   });

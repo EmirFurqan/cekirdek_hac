@@ -130,13 +130,16 @@ export default function RoomPage() {
   // States
   const [localStream, setLocalStream] = useState(null);
   const [peersList, setPeersList] = useState([]); // [ { socketId, stream } ]
-  const [participants, setParticipants] = useState([]); // [ socketId, ... ]
+  const [participants, setParticipants] = useState([]); // [ { id, username }, ... ]
   const [speakers, setSpeakers] = useState({}); // { socketId: isSpeaking }
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [micState, setMicState] = useState('unauthorized'); // 'unauthorized' | 'ready' | 'error'
   const [PeerConstructor, setPeerConstructor] = useState(null);
+  
+  // Custom Username State
+  const [username, setUsername] = useState('Anonim');
 
-  // Dynamically import simple-peer on client mount to bypass SSR environment crashes
+  // Load username or prompt if missing on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
       import('simple-peer').then((module) => {
@@ -144,6 +147,16 @@ export default function RoomPage() {
       }).catch(err => {
         console.error('Failed to load simple-peer library', err);
       });
+
+      const saved = localStorage.getItem('ptt_username');
+      if (saved) {
+        setUsername(saved);
+      } else {
+        const prompted = prompt("Lütfen odaya katılmadan önce bir kullanıcı adı girin:", "Anonim");
+        const finalName = prompted ? prompted.trim() : "Anonim";
+        localStorage.setItem('ptt_username', finalName);
+        setUsername(finalName);
+      }
     }
   }, []);
 
@@ -212,25 +225,25 @@ export default function RoomPage() {
       socketRef.current = getSocket();
       socketRef.current.connect();
 
-      // Join current audio room
-      socketRef.current.emit('join-room', roomId);
+      // Join current audio room with our custom username
+      socketRef.current.emit('join-room', { roomId, username });
 
       // Listeners for WebRTC signaling
       socketRef.current.on('all-users', (users) => {
         console.log('Received list of all users in room:', users);
         setParticipants(users);
         
-        users.forEach((userId) => {
-          const peer = createPeer(userId, socketRef.current.id, stream);
-          peersRef.current[userId] = peer;
+        users.forEach((user) => {
+          const peer = createPeer(user.id, socketRef.current.id, stream);
+          peersRef.current[user.id] = peer;
         });
       });
 
-      socketRef.current.on('user-joined', ({ signal, callerID }) => {
-        console.log('User joined room, creating responder peer for:', callerID);
+      socketRef.current.on('user-joined', ({ signal, callerID, callerUsername }) => {
+        console.log('User joined room, creating responder peer for:', callerUsername);
         setParticipants((prev) => {
-          if (prev.includes(callerID)) return prev;
-          return [...prev, callerID];
+          if (prev.some((p) => p.id === callerID)) return prev;
+          return [...prev, { id: callerID, username: callerUsername }];
         });
 
         const peer = addPeer(signal, callerID, stream);
@@ -276,7 +289,7 @@ export default function RoomPage() {
         }
 
         setPeersList((prev) => prev.filter((p) => p.socketId !== userId));
-        setParticipants((prev) => prev.filter((id) => id !== userId));
+        setParticipants((prev) => prev.filter((p) => p.id !== userId));
         setSpeakers((prev) => {
           const next = { ...prev };
           delete next[userId];
@@ -371,6 +384,20 @@ export default function RoomPage() {
     return peer;
   };
 
+  // Autoplay blocker workaround: Force play all HTML5 audio tags upon user gesture (mouseDown/touchStart)
+  const unblockRemoteAudio = () => {
+    try {
+      const audios = document.querySelectorAll('audio');
+      audios.forEach((audio) => {
+        audio.play().catch((err) => {
+          console.log('Audio autoplay unblocking ignored/already playing:', err);
+        });
+      });
+    } catch (e) {
+      console.warn('Autoplay unblock failed', e);
+    }
+  };
+
   // Turn local audio stream track ON
   const startSpeaking = () => {
     if (localStreamRef.current && micState === 'ready') {
@@ -379,6 +406,7 @@ export default function RoomPage() {
         audioTrack.enabled = true;
         setIsSpeaking(true);
         playPttStart(); // Play military start beep
+        unblockRemoteAudio(); // UNBLOCK iOS/Autoplay Safari audio
         
         // Notify others that we started speaking
         if (socketRef.current) {
@@ -564,10 +592,10 @@ export default function RoomPage() {
             {/* Local User */}
             <div className={`p-4 rounded-2xl bg-white/5 border transition-all duration-300 flex items-center gap-3 relative ${isSpeaking ? 'border-rose-500/40 shadow-md shadow-rose-500/5' : 'border-white/5'}`}>
               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs uppercase ${isSpeaking ? 'bg-gradient-to-tr from-rose-500 to-red-600 text-white' : 'bg-slate-800 text-cyan-400'}`}>
-                Siz
+                {username.substring(0, 2)}
               </div>
               <div className="truncate min-w-0">
-                <span className="block text-xs font-bold text-white truncate">Ben</span>
+                <span className="block text-xs font-bold text-white truncate">{username}</span>
                 <span className="block text-[10px] text-slate-500">
                   {isSpeaking ? 'Konuşuyor' : 'Sessiz'}
                 </span>
@@ -583,7 +611,9 @@ export default function RoomPage() {
             </div>
 
             {/* Remote Participants */}
-            {participants.map((socketId, idx) => {
+            {participants.map((participant, idx) => {
+              const socketId = participant.id;
+              const pUsername = participant.username;
               const remoteIsSpeaking = !!speakers[socketId];
               return (
                 <div
@@ -599,10 +629,10 @@ export default function RoomPage() {
                       ? 'bg-gradient-to-tr from-rose-500 to-red-600 text-white animate-pulse'
                       : 'bg-slate-800 text-slate-300'
                   }`}>
-                    U{idx + 1}
+                    {pUsername.substring(0, 2)}
                   </div>
                   <div className="truncate min-w-0">
-                    <span className="block text-xs font-bold text-slate-300 truncate">Kullanıcı {socketId.substring(0, 4)}</span>
+                    <span className="block text-xs font-bold text-slate-300 truncate">{pUsername}</span>
                     <span className="block text-[10px] text-slate-500">
                       {remoteIsSpeaking ? 'Konuşuyor' : 'Sessiz'}
                     </span>
