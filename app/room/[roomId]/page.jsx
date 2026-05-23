@@ -117,6 +117,22 @@ const playChime = () => {
   }
 };
 
+// Play dynamic custom audio file from public folder
+const playAudioEffect = (effectName) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (effectName === 'multezem') {
+      const audio = new Audio('/mültezem.mp3');
+      audio.volume = 0.8;
+      audio.play().catch((err) => {
+        console.warn('Failed to play custom audio effect:', err);
+      });
+    }
+  } catch (e) {
+    console.warn('Audio synthesis block:', e);
+  }
+};
+
 export default function RoomPage() {
   const params = useParams();
   const router = useRouter();
@@ -280,6 +296,21 @@ export default function RoomPage() {
         }, 1200);
       });
 
+      socketRef.current.on('receive-audio-effect', ({ senderId, effectName }) => {
+        playAudioEffect(effectName);
+        // Visually trigger speaking indicator briefly
+        setSpeakers((prev) => ({
+          ...prev,
+          [senderId]: true,
+        }));
+        setTimeout(() => {
+          setSpeakers((prev) => ({
+            ...prev,
+            [senderId]: false,
+          }));
+        }, 2000);
+      });
+
       socketRef.current.on('user-left', (userId) => {
         console.log('User left room, cleaning up socket:', userId);
         
@@ -441,6 +472,14 @@ export default function RoomPage() {
     }
   };
 
+  // Play custom audio effect locally and notify other users in the room
+  const sendAudioEffect = (effectName) => {
+    if (socketRef.current && micState === 'ready') {
+      playAudioEffect(effectName);
+      socketRef.current.emit('send-audio-effect', { roomId, effectName });
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-slate-950 via-zinc-900 to-black text-white font-sans overflow-hidden select-none">
       {/* Background Ambience */}
@@ -564,16 +603,30 @@ export default function RoomPage() {
               </p>
             </div>
 
-            {/* Chime soundboard trigger */}
-            <button
-              onClick={sendChimePing}
-              className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/20 rounded-2xl text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-all duration-300 transform active:scale-95 shadow-md cursor-pointer"
-            >
-              <svg className="w-4 h-4 text-cyan-400 animate-bounce" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a9.04 9.04 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5M19 13a7 7 0 1 1-14 0c0-1.127.098-2.233.287-3.308L5.75 6.25h12.5l.463 3.442A11.957 11.957 0 0 0 19 13Z"></path>
-              </svg>
-              Zil Çal (Odadakilere Ses Gönder)
-            </button>
+            {/* Action buttons / Soundboard */}
+            <div className="flex flex-wrap gap-4 justify-center items-center">
+              {/* Chime soundboard trigger */}
+              <button
+                onClick={sendChimePing}
+                className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/20 rounded-2xl text-xs font-semibold uppercase tracking-wider text-slate-300 hover:text-white transition-all duration-300 transform active:scale-95 shadow-md cursor-pointer"
+              >
+                <svg className="w-4 h-4 text-cyan-400 animate-bounce" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a9.04 9.04 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5M19 13a7 7 0 1 1-14 0c0-1.127.098-2.233.287-3.308L5.75 6.25h12.5l.463 3.442A11.957 11.957 0 0 0 19 13Z"></path>
+                </svg>
+                Zil Çal
+              </button>
+
+              {/* Mültezem custom audio effect trigger */}
+              <button
+                onClick={() => sendAudioEffect('multezem')}
+                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600/20 to-teal-600/20 hover:from-emerald-600/30 hover:to-teal-600/30 border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl text-xs font-semibold uppercase tracking-wider text-emerald-300 hover:text-white transition-all duration-300 transform active:scale-95 shadow-md cursor-pointer"
+              >
+                <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"></path>
+                </svg>
+                Mültezem Sesi Çal
+              </button>
+            </div>
           </div>
         )}
       </main>

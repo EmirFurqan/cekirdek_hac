@@ -94,6 +94,12 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('receive-ping-sound', { senderId: socket.id });
   });
 
+  // Relay custom audio effect trigger to other users in the room
+  socket.on('send-audio-effect', (payload) => {
+    const { roomId, effectName } = payload;
+    socket.to(roomId).emit('receive-audio-effect', { senderId: socket.id, effectName });
+  });
+
   // Handle client disconnection
   socket.on('disconnect', () => {
     console.log(`[Socket Disconnected] ID: ${socket.id} (${socket.username})`);
