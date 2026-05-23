@@ -122,7 +122,7 @@ const playAudioEffect = (effectName) => {
   if (typeof window === 'undefined') return;
   try {
     if (effectName === 'multezem') {
-      const audio = new Audio('/mültezem.mp3');
+      const audio = new Audio('/multezem.mp3');
       audio.volume = 0.8;
       audio.play().catch((err) => {
         console.warn('Failed to play custom audio effect:', err);
